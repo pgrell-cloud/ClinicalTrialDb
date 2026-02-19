@@ -1,0 +1,78 @@
+import streamlit as st
+import pandas as pd
+import google.generativeai as genai
+import os
+
+# --- KONFIGURACE ---
+# Vložte svůj API klíč z https://aistudio.google.com/app/apikey
+GEMINI_API_KEY = "VÁŠ_API_KLÍČ" 
+genai.configure(api_key=GEMINI_API_KEY)
+
+st.set_page_config(page_title="Klinické Studie AI", layout="wide", page_icon="🔬")
+
+# --- NAČTENÍ DAT ---
+@st.cache_data
+def load_data():
+    # Načtení hlavních tabulek
+    df_studie = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Studie.csv")
+    df_diagnozy = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Diagnozy.csv")
+    df_vazby = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Vazba_Studie.csv")
+    df_linie = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Linie.csv")
+    
+    # Propojení tabulek pro lepší kontext AI (Flattening)
+    # Propojíme ID z vazeb s názvy z ostatních tabulek
+    full_data = df_vazby.merge(df_studie, on="ID_Studie", how="left")
+    full_data = full_data.merge(df_diagnozy, on="ID_Diagnozy", how="left")
+    full_data = full_data.merge(df_linie, on="ID_Linie", how="left")
+    
+    return df_studie, full_data
+
+df_studie, df_ai_context = load_data()
+
+# --- UI APPLIKACE ---
+st.title("🔬 Vyhledávání v Klinických Studiích")
+st.markdown("Zeptejte se na cokoliv ohledně studií v databázi.")
+
+# Sidebar pro nastavení
+with st.sidebar:
+    st.header("Nastavení")
+    use_ai = st.checkbox("Použít Gemini AI pro hledání", value=True)
+    st.info("Tato aplikace běží na vašich datech z Google Sheets.")
+
+# Vyhledávací pole
+query = st.text_input("Zadejte dotaz (např. 'Najdi studie pro NSCLC v 1. linii'):", placeholder="Hledat...")
+
+if query:
+    if use_ai:
+        with st.spinner("Gemini analyzuje databázi..."):
+            # Vytvoření textového kontextu pro Gemini (omezeno na důležité sloupce)
+            context_text = df_ai_context[['Nazev_Studie', 'Nazev_Diagnozy', 'Nazev_linie', 'Stav', 'Investigátor', 'Poznamka']].to_string()
+            
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = f"""
+            Jsi specialista na klinické studie. Máš k dispozici následující seznam studií:
+            {context_text}
+            
+            Uživatel se ptá: "{query}"
+            
+            Odpověz přehledně. Pokud najdeš shodu, vypiš název studie, její stav a zodpovědnou osobu. 
+            Pokud je v poznámce nějaká důležitá podmínka (např. mutace), uveď ji.
+            Odpovídej v češtině.
+            """
+            
+            try:
+                response = model.generate_content(prompt)
+                st.subheader("🤖 Odpověď AI")
+                st.write(response.text)
+            except Exception as e:
+                st.error(f"Chyba AI: {e}")
+    else:
+        # Klasické filtrování pokud je AI vypnuté
+        filtered_df = df_studie[df_studie.apply(lambda row: query.lower() in row.astype(str).str.lower().str.cat(), axis=1)]
+        st.write(f"Nalezeno {len(filtered_df)} záznamů:")
+        st.dataframe(filtered_df)
+
+# --- ZOBRAZENÍ KOMPLETNÍ DATABÁZE ---
+st.divider()
+st.subheader("📊 Kompletní přehled studií")
+st.dataframe(df_studie, use_container_width=True)

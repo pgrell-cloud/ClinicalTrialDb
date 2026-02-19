@@ -2,76 +2,50 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# --- 1. ZÁKLADNÍ NASTAVENÍ ---
-st.set_page_config(page_title="Klinické Studie AI", layout="wide")
+st.set_page_config(page_title="Diagnostika Gemini", layout="wide")
 
-# Načtení klíče ze Streamlit Secrets
+# 1. Kontrola klíče
 if "GEMINI_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
 else:
-    st.error("❌ API klíč nenalezen v Secrets!")
+    st.error("❌ Klíč nenalezen v Secrets!")
     st.stop()
 
-# --- 2. OPRAVA CHYBY 404 (HLEDÁNÍ SPRÁVNÉHO NÁZVU MODELU) ---
-@st.cache_resource
-def get_model():
-    # Vyzkoušíme nejdříve standardní název, pak verzi s cestou
-    model_names = ['gemini-1.5-flash', 'models/gemini-1.5-flash']
-    for name in model_names:
-        try:
-            model = genai.GenerativeModel(name)
-            # Zkusíme krátký test, zda model reaguje
-            model.generate_content("test") 
-            return model
-        except Exception:
-            continue
-    return None
+st.title("🔬 Diagnostika připojení k AI")
 
-model = get_model()
+# 2. Výpis dostupných modelů (TADY ZJISTÍME PRAVDU)
+st.subheader("Seznam modelů dostupných pro váš klíč:")
+try:
+    available_models = []
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            available_models.append(m.name)
+            st.write(f"✅ Volatelný model: `{m.name}`")
+    
+    if not available_models:
+        st.warning("⚠️ Váš klíč nevidí žádné modely pro generování textu.")
+except Exception as e:
+    st.error(f"❌ Chyba při načítání seznamu modelů: {e}")
+    st.info("To často znamená, že API klíč je neplatný nebo má špatná oprávnění.")
 
-if model is None:
-    st.error("❌ Nepodařilo se inicializovat AI model. Zkontrolujte API klíč nebo region.")
-    st.stop()
-
-# --- 3. NAČTENÍ DAT Z EXCELU ---
-@st.cache_data
-def load_data():
-    file_name = "Klinicka_Databaze_3_vzorove_studie.xlsx"
+# 3. Pokus o automatický výběr nejlepšího modelu
+st.divider()
+if available_models:
+    # Hledáme flash, pokud není, vezmeme první dostupný
+    selected_model_name = next((m for m in available_models if "flash" in m), available_models[0])
+    st.info(f"Zkouším se připojit k: `{selected_model_name}`")
+    
     try:
-        # Načtení listů (přesně podle vašich názvů)
-        df_studie = pd.read_excel(file_name, sheet_name="Studie")
-        df_diagnozy = pd.read_excel(file_name, sheet_name="Diagnozy")
-        df_vazby = pd.read_excel(file_name, sheet_name="Vazba_Studie")
+        model = genai.GenerativeModel(selected_model_name)
+        test_res = model.generate_content("Ahoj, jsi v pořádku?")
+        st.success(f"🤖 AI odpověděla: {test_res.text}")
         
-        # Propojení tabulek
-        full_data = df_vazby.merge(df_studie, on="ID_Studie", how="left").merge(df_diagnozy, on="ID_Diagnozy", how="left")
-        return df_studie, full_data
+        st.balloons()
+        st.write("---")
+        st.write("### ✅ Diagnostika úspěšná!")
+        st.write(f"V kódu pro aplikaci nyní použijte název: `{selected_model_name}`")
+        
     except Exception as e:
-        st.error(f"❌ Chyba při načítání Excelu: {e}")
-        return None, None
-
-df_prehled, df_ai = load_data()
-
-# --- 4. UI A VYHLEDÁVÁNÍ ---
-st.title("🔬 Vyhledávač klinických studií")
-
-if df_ai is not None:
-    query = st.text_input("Zadejte dotaz (např. 'Pembrolizumab'):")
-
-    if query:
-        with st.spinner("AI hledá..."):
-            try:
-                # Sestavení textového kontextu pro AI
-                context = df_ai[['Nazev_Studie', 'Nazev_Diagnozy', 'Stav', 'Investigátor']].to_string()
-                
-                prompt = f"Na základě těchto dat o studiích:\n{context}\n\nOdpověz na dotaz: {query}. Odpovídej česky."
-                
-                response = model.generate_content(prompt)
-                st.success("Odpověď AI:")
-                st.write(response.text)
-            except Exception as e:
-                st.error(f"Chyba při komunikaci: {e}")
-
-    st.divider()
-    st.subheader("📊 Přehled databáze")
-    st.dataframe(df_prehled)
+        st.error(f"❌ Chyba při testu odpovědi: {e}")
+        

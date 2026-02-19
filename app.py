@@ -2,62 +2,60 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# 1. Nastavení stránky a AI
+# --- KONFIGURACE ---
 st.set_page_config(page_title="Klinické Studie AI", layout="wide")
 
-# Načtení klíče ze Streamlit Secrets
+# Načtení API klíče
 if "GEMINI_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     st.error("❌ API klíč nenalezen v Secrets!")
     st.stop()
 
-# 2. Funkce pro načtení dat
+# Definice modelu - opravený název pro verzi v1beta
+try:
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    model = genai.GenerativeModel('models/gemini-1.5-flash')
+
+# --- NAČTENÍ DAT ---
 @st.cache_data
 def load_data():
-    # Název souboru musí přesně odpovídat tomu na GitHubu
     file_name = "Klinicka_Databaze_3_vzorove_studie.xlsx"
     try:
-        # Načtení listů (používáme knihovnu pandas přes zkratku pd)
-        df_studie = pd.read_excel(file_name, sheet_name="Studie")
-        df_diagnozy = pd.read_excel(file_name, sheet_name="Diagnozy")
-        df_vazby = pd.read_excel(file_name, sheet_name="Vazba_Studie")
-        df_linie = pd.read_excel(file_name, sheet_name="Linie")
+        # Načtení listů z Excelu pomocí pandas (pd)
+        studie = pd.read_excel(file_name, sheet_name="Studie")
+        diagnozy = pd.read_excel(file_name, sheet_name="Diagnozy")
+        vazby = pd.read_excel(file_name, sheet_name="Vazba_Studie")
         
-        # Propojení tabulek do jedné velké (tzv. Flat Table)
-        full_data = df_vazby.merge(df_studie, on="ID_Studie", how="left")
-        full_data = full_data.merge(df_diagnozy, on="ID_Diagnozy", how="left")
-        full_data = full_data.merge(df_linie, on="ID_Linie", how="left")
-        
-        return df_studie, full_data
+        # Propojení dat (Join)
+        full_data = vazby.merge(studie, on="ID_Studie", how="left").merge(diagnozy, on="ID_Diagnozy", how="left")
+        return studie, full_data
     except Exception as e:
-        st.error(f"❌ Chyba při načítání Excelu: {e}")
+        st.error(f"❌ Chyba při načítání dat: {e}")
         return None, None
 
-# Spuštění načítání
-df_display, df_context = load_data()
+df_prehled, df_ai = load_data()
 
-# 3. Uživatelské rozhraní
+# --- UI ---
 st.title("🔬 Vyhledávač klinických studií")
 
-if df_display is not None:
-    query = st.text_input("Zadejte dotaz (např. 'Pembrolizumab' nebo 'studie pro melanom'):")
+if df_ai is not None:
+    query = st.text_input("Zadejte dotaz (např. Pembrolizumab):")
 
     if query:
-        with st.spinner("Gemini prohledává vaši databázi..."):
+        with st.spinner("AI hledá v databázi..."):
             try:
-                # Výběr sloupců, které posíláme AI, aby to nebylo moc dlouhé
-                context_text = df_context[['Nazev_Studie', 'Nazev_Diagnozy', 'Nazev_linie', 'Stav', 'Investigátor', 'Poznamka']].to_string()
-                
-                prompt = f"Máš k dispozici tyto klinické studie:\n{context_text}\n\nUživatel se ptá: {query}\nOdpověz česky a stručně."
+                # Omezení kontextu pro AI
+                context = df_ai[['Nazev_Studie', 'Nazev_Diagnozy', 'Stav', 'Investigátor']].to_string()
+                prompt = f"Data ze studií:\n{context}\n\nUživatel hledá: {query}\nOdpověz česky."
                 
                 response = model.generate_content(prompt)
-                st.info(response.text)
+                st.success("Výsledek:")
+                st.write(response.text)
             except Exception as e:
                 st.error(f"Chyba AI: {e}")
 
-    # Zobrazení tabulky pod vyhledáváním
     st.divider()
-    st.subheader("📊 Kompletní seznam studií")
-    st.dataframe(df_display, use_container_width=True)
+    st.dataframe(df_prehled)
+    

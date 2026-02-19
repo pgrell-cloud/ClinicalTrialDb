@@ -1,6 +1,13 @@
 import streamlit as st
-import pandas as pd
 import google.generativeai as genai
+
+# Načtení klíče ze Streamlit Secrets
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
+else:
+    st.error("API klíč nebyl nalezen v nastavení Secrets!")
+    st.stop()
 
 # --- KONFIGURACE ---
 st.set_page_config(page_title="Klinické Studie AI", layout="wide", page_icon="🔬")

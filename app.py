@@ -2,6 +2,16 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
+# Nastavení modelu
+try:
+    # Vynucení plného názvu modelu, který Google API v1beta vyžaduje
+    model = genai.GenerativeModel('models/gemini-1.5-flash')
+    # Rychlý test, aby se chyba zachytila hned tady
+    model.generate_content("test") 
+except Exception:
+    # Záložní varianta bez předpony
+    model = genai.GenerativeModel('gemini-1.5-flash')
+
 # --- 1. NASTAVENÍ A PŘIPOJENÍ ---
 st.set_page_config(page_title="Klinické Studie AI", layout="wide", page_icon="🔬")
 

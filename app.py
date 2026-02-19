@@ -2,48 +2,55 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# --- NASTAVENÍ GEMINI ---
-# Zde vložte svůj klíč, nebo ho v Streamlit Cloud vložte do "Secrets"
-API_KEY = "VÁŠ_API_KLÍČ" 
-genai.configure(api_key=API_KEY)
+# --- NASTAVENÍ TAJNÉHO KLÍČE ---
+if "GEMINI_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+else:
+    st.error("Chybí API klíč v Secrets!")
+    st.stop()
 
-st.set_page_config(page_title="Klinické Studie", layout="wide")
+st.set_page_config(page_title="Klinické Studie AI", layout="wide")
 
-# --- FUNKCE PRO NAČTENÍ DAT ---
+# --- FUNKCE PRO NAČTENÍ DAT Z EXCELU ---
 @st.cache_data
-def load_and_merge_data():
-    # Načtení vašich CSV souborů
-    studie = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Studie.csv")
-    diagnozy = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Diagnozy.csv")
-    vazby = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Vazba_Studie.csv")
-    linie = pd.read_csv("Klinicka_Databaze_3_vzorove_studie.xlsx - Linie.csv")
+def load_data():
+    # ZDE ZMĚŇTE NÁZEV NA VÁŠ SKUTEČNÝ SOUBOR
+    file_path = "Klinicka_Databaze_3_vzorove_studie.xlsx" 
     
-    # Propojení tabulek pro AI kontext
-    m = vazby.merge(studie, on="ID_Studie").merge(diagnozy, on="ID_Diagnozy").merge(linie, on="ID_Linie")
-    return studie, m
+    try:
+        # Načítáme jednotlivé listy (Sheet names)
+        df_studie = pd.read_excel(file_path, sheet_name="Studie")
+        df_diagnozy = pd.read_excel(file_path, sheet_name="Diagnozy")
+        df_vazby = pd.read_excel(file_path, sheet_name="Vazba_Studie")
+        df_linie = pd.read_excel(file_path, sheet_name="Linie")
+        
+        # Propojení tabulek pro AI (stejné jako u CSV)
+        full_context = df_vazby.merge(df_studie, on="ID_Studie", how="left")
+        full_context = full_context.merge(df_diagnozy, on="ID_Diagnozy", how="left")
+        full_context = full_context.merge(df_linie, on="ID_Linie", how="left")
+        
+        return df_studie, full_context
+    except Exception as e:
+        st.error(f"Chyba při načítání Excelu: {e}")
+        return None, None
 
-try:
-    df_display, df_context = load_and_merge_data()
-    
-    st.title("🔬 Vyhledávač klinických studií")
-    
-    query = st.text_input("Zadejte dotaz (např. 'Najdi studie pro NSCLC v 1. linii'):")
+df_display, df_ai = load_data()
 
+if df_display is not None:
+    st.title("🔬 Smart Vyhledávač (Excel Verze)")
+    
+    query = st.text_input("Co hledáte?")
+    
     if query:
-        with st.spinner("Gemini hledá v databázi..."):
+        with st.spinner("Gemini čte listy Excelu..."):
             model = genai.GenerativeModel('gemini-1.5-flash')
-            # Vytvoření textového popisu dat pro AI
-            data_str = df_context[['Nazev_Studie', 'Nazev_Diagnozy', 'Nazev_linie', 'Stav', 'Investigátor', 'Poznamka']].to_string()
+            # Převod dat na text pro AI
+            context_text = df_ai[['Nazev_Studie', 'Nazev_Diagnozy', 'Nazev_linie', 'Stav', 'Investigátor']].to_string()
             
-            prompt = f"Na základě těchto dat o klinických studiích:\n\n{data_str}\n\nOdpověz na dotaz: {query}. Odpovídej česky a stručně."
-            
+            prompt = f"Data: {context_text}\n\nDotaz: {query}\n\nOdpověz česky."
             response = model.generate_content(prompt)
-            st.info("Výsledek od AI:")
-            st.write(response.text)
+            st.info(response.text)
 
     st.divider()
-    st.subheader("Tabulkový přehled")
     st.dataframe(df_display)
-
-except Exception as e:
-    st.error(f"Nepodařilo se načíst data. Ujistěte se, že jsou CSV soubory ve stejné složce. Chyba: {e}")
+    

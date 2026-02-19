@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
+model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+
 # --- NASTAVENÍ TAJNÉHO KLÍČE ---
 if "GEMINI_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
